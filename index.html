@@ -1,0 +1,765 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#14181F" />
+<title>Expense Vault</title>
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icon-192.png" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --ink: #14181F;
+    --ink-raised: #1D222B;
+    --steel: #2B313D;
+    --steel-line: #3A4150;
+    --brass: #B8935B;
+    --brass-bright: #D4AF7A;
+    --paper: #EDE7DA;
+    --paper-dim: #A9A399;
+    --sealed: #6B8F71;
+    --pending: #A6553A;
+    --radius: 14px;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--ink);
+    color: var(--paper);
+    font-family: 'Inter', sans-serif;
+    height: 100%;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
+  h1, h2, h3, .display {
+    font-family: 'Space Grotesk', sans-serif;
+    letter-spacing: -0.01em;
+  }
+
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+
+  /* ---------- Header ---------- */
+  header {
+    padding: 18px 20px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--steel-line);
+    position: sticky;
+    top: 0;
+    background: var(--ink);
+    z-index: 10;
+  }
+
+  .brand { display: flex; align-items: center; gap: 10px; }
+
+  .brand h1 { font-size: 19px; font-weight: 700; margin: 0; color: var(--paper); }
+  .brand .sub { font-size: 10px; color: var(--paper-dim); letter-spacing: 0.12em; text-transform: uppercase; margin-top: 1px; }
+
+  .dial {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    border: 2px solid var(--brass);
+    position: relative;
+    flex-shrink: 0;
+  }
+  .dial::before {
+    content: '';
+    position: absolute;
+    top: 3px; left: 50%;
+    width: 2px; height: 8px;
+    background: var(--brass);
+    transform: translateX(-50%);
+    transform-origin: 50% 14px;
+    transition: transform 0.6s cubic-bezier(.4,1.6,.4,1);
+  }
+  .dial.spin::before { transform: translateX(-50%) rotate(300deg); }
+
+  .sync-badge {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px;
+    color: var(--paper-dim);
+    background: var(--ink-raised);
+    border: 1px solid var(--steel-line);
+    padding: 6px 10px;
+    border-radius: 20px;
+  }
+  .sync-badge .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--sealed);
+    flex-shrink: 0;
+  }
+  .sync-badge.has-pending .dot { background: var(--pending); }
+  .sync-badge.has-pending { color: var(--brass-bright); border-color: var(--pending); }
+
+  /* ---------- Main / views ---------- */
+  main { flex: 1; overflow-y: auto; padding: 18px 20px 100px; }
+
+  .view { display: none; animation: fadeIn 0.2s ease; }
+  .view.active { display: block; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  label {
+    display: block;
+    font-size: 12px;
+    color: var(--paper-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 18px 0 8px;
+  }
+  label:first-of-type { margin-top: 0; }
+
+  input[type=text], select, textarea {
+    width: 100%;
+    background: var(--ink-raised);
+    border: 1px solid var(--steel-line);
+    border-radius: 10px;
+    padding: 13px 14px;
+    color: var(--paper);
+    font-size: 15px;
+    font-family: 'Inter', sans-serif;
+  }
+  input[type=text]:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--brass);
+  }
+
+  .segmented {
+    display: flex;
+    background: var(--ink-raised);
+    border: 1px solid var(--steel-line);
+    border-radius: 10px;
+    padding: 3px;
+    gap: 3px;
+  }
+  .segmented button {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--paper-dim);
+    padding: 10px 8px;
+    font-size: 14px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .segmented button.active {
+    background: var(--brass);
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .amount-row { display: flex; align-items: baseline; gap: 8px; }
+  .amount-row span { font-size: 22px; color: var(--paper-dim); font-family: 'IBM Plex Mono', monospace; }
+  .amount-row input {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 28px;
+    font-weight: 600;
+    padding: 8px 0;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid var(--steel-line);
+    border-radius: 0;
+  }
+  .amount-row input:focus { border-bottom-color: var(--brass); }
+
+  .submit-btn {
+    width: 100%;
+    margin-top: 28px;
+    background: var(--brass);
+    color: var(--ink);
+    border: none;
+    border-radius: 10px;
+    padding: 15px;
+    font-size: 15px;
+    font-weight: 700;
+    font-family: 'Space Grotesk', sans-serif;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+  }
+  .submit-btn:active { background: var(--brass-bright); }
+
+  .toast {
+    position: fixed;
+    bottom: 92px;
+    left: 20px; right: 20px;
+    background: var(--ink-raised);
+    border: 1px solid var(--brass);
+    color: var(--paper);
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 14px;
+    text-align: center;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: all 0.25s ease;
+    pointer-events: none;
+    z-index: 20;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+
+  /* ---------- Ledger ---------- */
+  .entry-card {
+    background: var(--ink-raised);
+    border: 1px solid var(--steel-line);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .lock {
+    width: 20px; height: 20px;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .entry-body { flex: 1; min-width: 0; }
+  .entry-top { display: flex; justify-content: space-between; gap: 8px; }
+  .entry-desc { font-size: 15px; font-weight: 500; color: var(--paper); }
+  .entry-amount { font-family: 'IBM Plex Mono', monospace; font-weight: 600; color: var(--brass-bright); white-space: nowrap; }
+  .entry-meta { font-size: 12px; color: var(--paper-dim); margin-top: 4px; }
+  .entry-status { font-size: 11px; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .entry-status.pending { color: var(--pending); }
+  .entry-status.sealed { color: var(--sealed); }
+
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--paper-dim);
+  }
+  .empty-state .dial { margin: 0 auto 16px; width: 48px; height: 48px; }
+  .empty-state .dial::before { transform-origin: 50% 20px; height: 12px; }
+
+  /* ---------- Dashboard ---------- */
+  .totals-header { display: flex; gap: 8px; margin-bottom: 18px; }
+  .totals-header button {
+    background: var(--ink-raised);
+    border: 1px solid var(--steel-line);
+    color: var(--paper-dim);
+    padding: 8px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-family: 'Inter', sans-serif;
+    cursor: pointer;
+  }
+  .totals-header button.active { background: var(--brass); color: var(--ink); border-color: var(--brass); font-weight: 600; }
+
+  .grand-total {
+    text-align: center;
+    padding: 22px 0 26px;
+  }
+  .grand-total .figure {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 40px;
+    font-weight: 600;
+    color: var(--brass-bright);
+  }
+  .grand-total .label {
+    font-size: 11px;
+    color: var(--paper-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-top: 4px;
+  }
+
+  .bar-row { margin-bottom: 14px; }
+  .bar-row .bar-label {
+    display: flex; justify-content: space-between;
+    font-size: 13px; margin-bottom: 6px;
+  }
+  .bar-row .bar-label .name { color: var(--paper); font-weight: 500; }
+  .bar-row .bar-label .val { color: var(--brass-bright); font-family: 'IBM Plex Mono', monospace; }
+  .bar-track {
+    height: 8px;
+    background: var(--ink-raised);
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid var(--steel-line);
+  }
+  .bar-fill { height: 100%; background: var(--brass); border-radius: 4px 0 0 4px; }
+
+  /* ---------- Tab bar ---------- */
+  nav.tabbar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: var(--ink-raised);
+    border-top: 1px solid var(--steel-line);
+    display: flex;
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    z-index: 10;
+  }
+  nav.tabbar button {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--paper-dim);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 0;
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  nav.tabbar button.active { color: var(--brass-bright); }
+  nav.tabbar .icon { font-size: 18px; line-height: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="dial" id="headerDial"></div>
+    <div>
+      <h1>Expense Vault</h1>
+      <div class="sub">Palm Crest</div>
+    </div>
+  </div>
+  <div class="sync-badge" id="syncBadge">
+    <div class="dot"></div>
+    <span id="syncBadgeText">All sealed</span>
+  </div>
+</header>
+
+<main>
+
+  <!-- ADD VIEW -->
+  <section class="view active" id="view-add">
+    <label>Amount</label>
+    <div class="amount-row">
+      <span>$</span>
+      <input type="text" inputmode="decimal" id="f-amount" placeholder="0.00" />
+    </div>
+
+    <label>Description</label>
+    <input type="text" id="f-desc" placeholder="What was it for?" />
+
+    <label>Business or private</label>
+    <div class="segmented" id="f-type">
+      <button type="button" class="active" data-val="Business">Business</button>
+      <button type="button" data-val="Private">Private</button>
+    </div>
+
+    <label>Paid with</label>
+    <div class="segmented" id="f-payment">
+      <button type="button" class="active" data-val="Cash">Cash</button>
+      <button type="button" data-val="Personal Card">Personal</button>
+      <button type="button" data-val="Business Card">Business</button>
+    </div>
+
+    <label>Category</label>
+    <select id="f-category"></select>
+
+    <label>Vendor</label>
+    <input type="text" id="f-vendor" placeholder="Business name" />
+
+    <label>Purchaser</label>
+    <select id="f-purchaser"></select>
+
+    <button class="submit-btn" id="submitBtn">Add to vault</button>
+  </section>
+
+  <!-- LEDGER VIEW -->
+  <section class="view" id="view-ledger">
+    <div id="ledgerList"></div>
+  </section>
+
+  <!-- DASHBOARD VIEW -->
+  <section class="view" id="view-dashboard">
+    <div class="totals-header">
+      <button class="active" data-group="category">By category</button>
+      <button data-group="purchaser">By purchaser</button>
+      <button data-group="type">Business / private</button>
+    </div>
+    <div class="grand-total">
+      <div class="figure" id="grandTotal">$0.00</div>
+      <div class="label">Total logged</div>
+    </div>
+    <div id="dashboardBars"></div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<nav class="tabbar">
+  <button class="active" data-view="add"><span class="icon">＋</span>Add</button>
+  <button data-view="ledger"><span class="icon">▤</span>Ledger</button>
+  <button data-view="dashboard"><span class="icon">◔</span>Dashboard</button>
+</nav>
+
+<script>
+/* ======================= CONFIG ======================= */
+// Replace with your deployed GAS Web App URL (Deploy > New deployment > Web app > Anyone).
+const API_URL = 'https://script.google.com/macros/s/AKfycbyPERye2VLoKURxl6O0mrIcx0qy-5aFGvotbhk6q59aZDP55DLqGqbU8Qj9T63jFpwDYw/exec';
+
+const DEFAULT_CATEGORIES = ['Fuel', 'Meals', 'Accommodation', 'Tools & Consumables', 'Freight', 'PPE', 'Other'];
+const DEFAULT_PURCHASERS = [];
+
+/* ======================= INDEXEDDB ======================= */
+const DB_NAME = 'expense-vault';
+const DB_VERSION = 1;
+let dbPromise = null;
+
+function openDb() {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('pending')) {
+        db.createObjectStore('pending', { keyPath: 'clientId' });
+      }
+      if (!db.objectStoreNames.contains('synced_cache')) {
+        db.createObjectStore('synced_cache', { keyPath: 'clientId' });
+      }
+      if (!db.objectStoreNames.contains('config')) {
+        db.createObjectStore('config', { keyPath: 'key' });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return dbPromise;
+}
+
+async function idbAll(storeName) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readonly');
+    const store = tx.objectStore(storeName);
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbPut(storeName, value) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    tx.objectStore(storeName).put(value);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function idbDelete(storeName, key) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    tx.objectStore(storeName).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function idbGet(storeName, key) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readonly');
+    const req = tx.objectStore(storeName).get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/* ======================= HELPERS ======================= */
+function uuid() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+function money(n) {
+  return '$' + (Number(n) || 0).toFixed(2);
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+function segmentedSetup(id) {
+  const el = document.getElementById(id);
+  el.addEventListener('click', (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    [...el.children].forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+}
+segmentedSetup('f-type');
+segmentedSetup('f-payment');
+
+function segmentedValue(id) {
+  return document.querySelector(`#${id} button.active`).dataset.val;
+}
+
+/* ======================= CONFIG (categories / purchasers) ======================= */
+async function loadConfigIntoForm() {
+  let categories = DEFAULT_CATEGORIES;
+  let purchasers = DEFAULT_PURCHASERS;
+
+  const cached = await idbGet('config', 'lists');
+  if (cached) {
+    categories = cached.categories.length ? cached.categories : categories;
+    purchasers = cached.purchasers.length ? cached.purchasers : purchasers;
+  }
+
+  if (navigator.onLine) {
+    try {
+      const res = await fetch(`${API_URL}?action=config`);
+      const data = await res.json();
+      if (data && data.categories) {
+        categories = data.categories;
+        purchasers = data.purchasers;
+        await idbPut('config', { key: 'lists', categories, purchasers });
+      }
+    } catch (e) { /* offline or backend not deployed yet — use cache/defaults */ }
+  }
+
+  const catSel = document.getElementById('f-category');
+  catSel.innerHTML = categories.map((c) => `<option>${c}</option>`).join('');
+
+  const purSel = document.getElementById('f-purchaser');
+  purSel.innerHTML = purchasers.length
+    ? purchasers.map((p) => `<option>${p}</option>`).join('')
+    : '<option value="">Add name in Purchasers sheet</option>';
+}
+
+/* ======================= SYNC ======================= */
+async function updateSyncBadge() {
+  const pending = await idbAll('pending');
+  const badge = document.getElementById('syncBadge');
+  const text = document.getElementById('syncBadgeText');
+  if (pending.length === 0) {
+    badge.classList.remove('has-pending');
+    text.textContent = 'All sealed';
+  } else {
+    badge.classList.add('has-pending');
+    text.textContent = `${pending.length} pending`;
+  }
+}
+
+async function trySync() {
+  if (!navigator.onLine) return;
+  const pending = await idbAll('pending');
+  if (pending.length === 0) return;
+
+  const dial = document.getElementById('headerDial');
+  dial.classList.add('spin');
+
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids CORS preflight against GAS
+      body: JSON.stringify({ action: 'addEntries', entries: pending })
+    });
+    const result = await res.json();
+    if (result && result.ok) {
+      for (const entry of pending) {
+        await idbDelete('pending', entry.clientId);
+        entry.synced = true;
+        await idbPut('synced_cache', entry);
+      }
+      showToast(pending.length === 1 ? 'Entry sealed' : `${pending.length} entries sealed`);
+    }
+  } catch (e) {
+    // stays queued, will retry on next trigger
+  } finally {
+    setTimeout(() => dial.classList.remove('spin'), 650);
+    await updateSyncBadge();
+    if (document.getElementById('view-ledger').classList.contains('active')) renderLedger();
+  }
+}
+
+window.addEventListener('online', trySync);
+setInterval(trySync, 30000);
+
+/* ======================= ADD EXPENSE ======================= */
+document.getElementById('submitBtn').addEventListener('click', async () => {
+  const amount = parseFloat(document.getElementById('f-amount').value);
+  const desc = document.getElementById('f-desc').value.trim();
+
+  if (!amount || amount <= 0) { showToast('Enter an amount'); return; }
+  if (!desc) { showToast('Add a description'); return; }
+
+  const entry = {
+    clientId: uuid(),
+    timestamp: new Date().toISOString(),
+    amount,
+    description: desc,
+    type: segmentedValue('f-type'),
+    payment: segmentedValue('f-payment'),
+    category: document.getElementById('f-category').value,
+    vendor: document.getElementById('f-vendor').value.trim(),
+    purchaser: document.getElementById('f-purchaser').value,
+    synced: false
+  };
+
+  await idbPut('pending', entry);
+  await updateSyncBadge();
+  showToast('Saved — pending sync');
+
+  document.getElementById('f-amount').value = '';
+  document.getElementById('f-desc').value = '';
+  document.getElementById('f-vendor').value = '';
+
+  trySync();
+});
+
+/* ======================= LEDGER ======================= */
+async function renderLedger() {
+  const pending = await idbAll('pending');
+  const synced = await idbAll('synced_cache');
+  const all = [...pending, ...synced].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+  const list = document.getElementById('ledgerList');
+  if (all.length === 0) {
+    list.innerHTML = `
+      <div class="empty-state">
+        <div class="dial"></div>
+        <div>No entries yet — add your first expense.</div>
+      </div>`;
+    return;
+  }
+
+  list.innerHTML = all.map((e) => {
+    const date = new Date(e.timestamp);
+    const dateStr = date.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
+    const timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    const lockSvg = e.synced ? lockedSvg('#6B8F71', true) : lockedSvg('#A6553A', false);
+    return `
+      <div class="entry-card">
+        <div class="lock">${lockSvg}</div>
+        <div class="entry-body">
+          <div class="entry-top">
+            <div class="entry-desc">${escapeHtml(e.description)}</div>
+            <div class="entry-amount">${money(e.amount)}</div>
+          </div>
+          <div class="entry-meta">${e.category} · ${e.type} · ${e.payment}${e.purchaser ? ' · ' + escapeHtml(e.purchaser) : ''}</div>
+          <div class="entry-meta">${dateStr}, ${timeStr}${e.vendor ? ' · ' + escapeHtml(e.vendor) : ''}</div>
+          <div class="entry-status ${e.synced ? 'sealed' : 'pending'}">${e.synced ? 'Sealed' : 'Pending sync'}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function lockedSvg(color, sealed) {
+  // sealed = closed shackle (synced), open shackle = pending
+  const shackle = sealed
+    ? `<path d="M6 9V7a4 4 0 0 1 8 0v2" stroke="${color}" stroke-width="1.6" fill="none" stroke-linecap="round"/>`
+    : `<path d="M6 9V7a4 4 0 0 1 7.4-2" stroke="${color}" stroke-width="1.6" fill="none" stroke-linecap="round"/>`;
+  return `<svg viewBox="0 0 20 20" width="20" height="20">${shackle}<rect x="4" y="9" width="12" height="8" rx="2" fill="${color}" opacity="0.9"/></svg>`;
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/* ======================= DASHBOARD ======================= */
+let dashboardGroup = 'category';
+
+async function fetchDashboardEntries() {
+  // Prefer live data when online; fall back to whatever is cached locally.
+  if (navigator.onLine) {
+    try {
+      const res = await fetch(`${API_URL}?action=entries`);
+      const data = await res.json();
+      if (data && data.entries) {
+        await idbPut('config', { key: 'dashboard_cache', entries: data.entries });
+        return data.entries;
+      }
+    } catch (e) { /* fall through to cache */ }
+  }
+  const cached = await idbGet('config', 'dashboard_cache');
+  const pending = await idbAll('pending');
+  return [...(cached ? cached.entries : []), ...pending];
+}
+
+async function renderDashboard() {
+  const entries = await fetchDashboardEntries();
+  const total = entries.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  document.getElementById('grandTotal').textContent = money(total);
+
+  const groups = {};
+  for (const e of entries) {
+    const key = e[dashboardGroup] || 'Uncategorised';
+    groups[key] = (groups[key] || 0) + Number(e.amount || 0);
+  }
+
+  const sorted = Object.entries(groups).sort((a, b) => b[1] - a[1]);
+  const max = sorted.length ? sorted[0][1] : 1;
+
+  const container = document.getElementById('dashboardBars');
+  if (sorted.length === 0) {
+    container.innerHTML = `<div class="empty-state"><div class="dial"></div><div>No entries logged yet.</div></div>`;
+    return;
+  }
+  container.innerHTML = sorted.map(([name, val]) => `
+    <div class="bar-row">
+      <div class="bar-label"><span class="name">${escapeHtml(name)}</span><span class="val">${money(val)}</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(val / max) * 100}%"></div></div>
+    </div>
+  `).join('');
+}
+
+document.getElementById('view-dashboard').querySelectorAll('.totals-header button').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.totals-header button').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    dashboardGroup = btn.dataset.group;
+    renderDashboard();
+  });
+});
+
+/* ======================= NAV ======================= */
+document.querySelectorAll('nav.tabbar button').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('nav.tabbar button').forEach((b) => b.classList.remove('active'));
+    document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
+    btn.classList.add('active');
+    const view = document.getElementById(`view-${btn.dataset.view}`);
+    view.classList.add('active');
+    if (btn.dataset.view === 'ledger') renderLedger();
+    if (btn.dataset.view === 'dashboard') renderDashboard();
+  });
+});
+
+/* ======================= INIT ======================= */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
+
+(async () => {
+  await loadConfigIntoForm();
+  await updateSyncBadge();
+  trySync();
+})();
+</script>
+
+</body>
+</html>
