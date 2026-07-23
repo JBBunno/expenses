@@ -124,7 +124,7 @@
   }
   label:first-of-type { margin-top: 0; }
 
-  input[type=text], select, textarea {
+  input[type=text], input[type=date], select, textarea {
     width: 100%;
     background: var(--ink-raised);
     border: 1px solid var(--steel-line);
@@ -134,7 +134,7 @@
     font-size: 15px;
     font-family: 'Inter', sans-serif;
   }
-  input[type=text]:focus, select:focus, textarea:focus {
+  input[type=text]:focus, input[type=date]:focus, select:focus, textarea:focus {
     outline: none;
     border-color: var(--brass);
   }
@@ -178,6 +178,36 @@
     border-radius: 0;
   }
   .amount-row input:focus { border-bottom-color: var(--brass); }
+
+  input[type=date]::-webkit-calendar-picker-indicator { filter: invert(0.8) sepia(1) saturate(2) hue-rotate(-10deg); cursor: pointer; }
+
+  .filter-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+  .filter-row select {
+    width: auto;
+    padding: 8px 30px 8px 14px;
+    font-size: 13px;
+    border-radius: 20px;
+    background-color: var(--ink-raised);
+  }
+
+  .month-divider {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--brass);
+    margin: 22px 0 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--steel-line);
+  }
+  .month-divider:first-child { margin-top: 0; }
 
   .submit-btn {
     width: 100%;
@@ -352,6 +382,9 @@
     <label>Description</label>
     <input type="text" id="f-desc" placeholder="What was it for?" />
 
+    <label>Date of purchase</label>
+    <input type="date" id="f-purchase-date" />
+
     <label>Business or private</label>
     <div class="segmented" id="f-type">
       <button type="button" class="active" data-val="Business">Business</button>
@@ -379,11 +412,21 @@
 
   <!-- LEDGER VIEW -->
   <section class="view" id="view-ledger">
+    <div class="filter-row">
+      <select id="ledgerMonthFilter">
+        <option value="all">All months</option>
+      </select>
+    </div>
     <div id="ledgerList"></div>
   </section>
 
   <!-- DASHBOARD VIEW -->
   <section class="view" id="view-dashboard">
+    <div class="filter-row">
+      <select id="dashboardMonthFilter">
+        <option value="all">All time</option>
+      </select>
+    </div>
     <div class="totals-header">
       <button class="active" data-group="category">By category</button>
       <button data-group="purchaser">By purchaser</button>
@@ -495,6 +538,35 @@ function money(n) {
   return '$' + (Number(n) || 0).toFixed(2);
 }
 
+function todayStr() {
+  const d = new Date();
+  const tzOffset = d.getTimezoneOffset() * 60000;
+  return new Date(d - tzOffset).toISOString().slice(0, 10);
+}
+
+function entryDate(e) {
+  // purchaseDate (YYYY-MM-DD) is the field of record; fall back to timestamp for any legacy rows
+  return e.purchaseDate || (e.timestamp ? e.timestamp.slice(0, 10) : '');
+}
+
+function monthKey(dateStr) {
+  return dateStr ? dateStr.slice(0, 7) : 'unknown'; // 'YYYY-MM'
+}
+
+function monthLabel(key) {
+  if (key === 'unknown') return 'Undated';
+  const [y, m] = key.split('-');
+  return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+}
+
+function populateMonthFilter(selectEl, entries, allLabel) {
+  const current = selectEl.value || 'all';
+  const months = [...new Set(entries.map((e) => monthKey(entryDate(e))))].sort().reverse();
+  selectEl.innerHTML = `<option value="all">${allLabel}</option>` +
+    months.map((m) => `<option value="${m}">${monthLabel(m)}</option>`).join('');
+  if ([...selectEl.options].some((o) => o.value === current)) selectEl.value = current;
+}
+
 function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -603,13 +675,16 @@ setInterval(trySync, 30000);
 document.getElementById('submitBtn').addEventListener('click', async () => {
   const amount = parseFloat(document.getElementById('f-amount').value);
   const desc = document.getElementById('f-desc').value.trim();
+  const purchaseDate = document.getElementById('f-purchase-date').value;
 
   if (!amount || amount <= 0) { showToast('Enter an amount'); return; }
   if (!desc) { showToast('Add a description'); return; }
+  if (!purchaseDate) { showToast('Set the purchase date'); return; }
 
   const entry = {
     clientId: uuid(),
     timestamp: new Date().toISOString(),
+    purchaseDate,
     amount,
     description: desc,
     type: segmentedValue('f-type'),
@@ -627,6 +702,7 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
   document.getElementById('f-amount').value = '';
   document.getElementById('f-desc').value = '';
   document.getElementById('f-vendor').value = '';
+  document.getElementById('f-purchase-date').value = todayStr();
 
   trySync();
 });
@@ -635,24 +711,38 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
 async function renderLedger() {
   const pending = await idbAll('pending');
   const synced = await idbAll('synced_cache');
-  const all = [...pending, ...synced].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  const all = [...pending, ...synced].sort((a, b) => {
+    const dcmp = entryDate(b).localeCompare(entryDate(a));
+    return dcmp !== 0 ? dcmp : new Date(b.timestamp) - new Date(a.timestamp);
+  });
+
+  const filterEl = document.getElementById('ledgerMonthFilter');
+  populateMonthFilter(filterEl, all, 'All months');
+  const selected = filterEl.value;
+  const filtered = selected === 'all' ? all : all.filter((e) => monthKey(entryDate(e)) === selected);
 
   const list = document.getElementById('ledgerList');
-  if (all.length === 0) {
+  if (filtered.length === 0) {
     list.innerHTML = `
       <div class="empty-state">
         <div class="dial"></div>
-        <div>No entries yet — add your first expense.</div>
+        <div>${all.length === 0 ? 'No entries yet — add your first expense.' : 'No entries in that month.'}</div>
       </div>`;
     return;
   }
 
-  list.innerHTML = all.map((e) => {
-    const date = new Date(e.timestamp);
-    const dateStr = date.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
-    const timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  let html = '';
+  let lastMonth = null;
+  for (const e of filtered) {
+    const mKey = monthKey(entryDate(e));
+    if (selected === 'all' && mKey !== lastMonth) {
+      html += `<div class="month-divider">${monthLabel(mKey)}</div>`;
+      lastMonth = mKey;
+    }
+    const dateObj = entryDate(e) ? new Date(entryDate(e) + 'T00:00:00') : new Date(e.timestamp);
+    const dateStr = dateObj.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
     const lockSvg = e.synced ? lockedSvg('#6B8F71', true) : lockedSvg('#A6553A', false);
-    return `
+    html += `
       <div class="entry-card">
         <div class="lock">${lockSvg}</div>
         <div class="entry-body">
@@ -661,11 +751,12 @@ async function renderLedger() {
             <div class="entry-amount">${money(e.amount)}</div>
           </div>
           <div class="entry-meta">${e.category} · ${e.type} · ${e.payment}${e.purchaser ? ' · ' + escapeHtml(e.purchaser) : ''}</div>
-          <div class="entry-meta">${dateStr}, ${timeStr}${e.vendor ? ' · ' + escapeHtml(e.vendor) : ''}</div>
+          <div class="entry-meta">${dateStr}${e.vendor ? ' · ' + escapeHtml(e.vendor) : ''}</div>
           <div class="entry-status ${e.synced ? 'sealed' : 'pending'}">${e.synced ? 'Sealed' : 'Pending sync'}</div>
         </div>
       </div>`;
-  }).join('');
+  }
+  list.innerHTML = html;
 }
 
 function lockedSvg(color, sealed) {
@@ -701,7 +792,13 @@ async function fetchDashboardEntries() {
 }
 
 async function renderDashboard() {
-  const entries = await fetchDashboardEntries();
+  const allEntries = await fetchDashboardEntries();
+
+  const filterEl = document.getElementById('dashboardMonthFilter');
+  populateMonthFilter(filterEl, allEntries, 'All time');
+  const selected = filterEl.value;
+  const entries = selected === 'all' ? allEntries : allEntries.filter((e) => monthKey(entryDate(e)) === selected);
+
   const total = entries.reduce((sum, e) => sum + Number(e.amount || 0), 0);
   document.getElementById('grandTotal').textContent = money(total);
 
@@ -726,6 +823,9 @@ async function renderDashboard() {
     </div>
   `).join('');
 }
+
+document.getElementById('ledgerMonthFilter').addEventListener('change', renderLedger);
+document.getElementById('dashboardMonthFilter').addEventListener('change', renderDashboard);
 
 document.getElementById('view-dashboard').querySelectorAll('.totals-header button').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -755,6 +855,7 @@ if ('serviceWorker' in navigator) {
 }
 
 (async () => {
+  document.getElementById('f-purchase-date').value = todayStr();
   await loadConfigIntoForm();
   await updateSyncBadge();
   trySync();
