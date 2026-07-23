@@ -8,7 +8,7 @@
 <title>Expense Vault</title>
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icon-192.png" />
-<link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="icon-180.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet" />
@@ -195,6 +195,21 @@
     border-radius: 20px;
     background-color: var(--ink-raised);
   }
+  .refresh-btn {
+    flex-shrink: 0;
+    width: 34px; height: 34px;
+    background: var(--ink-raised);
+    border: 1px solid var(--steel-line);
+    color: var(--brass);
+    border-radius: 50%;
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .refresh-btn.spin { animation: spinIcon 0.7s linear; }
+  @keyframes spinIcon { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
   .month-divider {
     font-family: 'Space Grotesk', sans-serif;
@@ -416,6 +431,7 @@
       <select id="ledgerMonthFilter">
         <option value="all">All months</option>
       </select>
+      <button type="button" class="refresh-btn" id="ledgerRefreshBtn" title="Refresh from server">⟳</button>
     </div>
     <div id="ledgerList"></div>
   </section>
@@ -426,6 +442,7 @@
       <select id="dashboardMonthFilter">
         <option value="all">All time</option>
       </select>
+      <button type="button" class="refresh-btn" id="dashboardRefreshBtn" title="Refresh from server">⟳</button>
     </div>
     <div class="totals-header">
       <button class="active" data-group="category">By category</button>
@@ -708,10 +725,8 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
 });
 
 /* ======================= LEDGER ======================= */
-async function renderLedger() {
-  const pending = await idbAll('pending');
-  const synced = await idbAll('synced_cache');
-  const all = [...pending, ...synced].sort((a, b) => {
+async function renderLedger(forceRefresh) {
+  const all = (await getAllEntries(forceRefresh)).sort((a, b) => {
     const dcmp = entryDate(b).localeCompare(entryDate(a));
     return dcmp !== 0 ? dcmp : new Date(b.timestamp) - new Date(a.timestamp);
   });
@@ -774,25 +789,33 @@ function escapeHtml(s) {
 /* ======================= DASHBOARD ======================= */
 let dashboardGroup = 'category';
 
-async function fetchDashboardEntries() {
-  // Prefer live data when online; fall back to whatever is cached locally.
+async function getAllEntries(forceRefresh) {
+  let remoteEntries = null;
+
   if (navigator.onLine) {
     try {
       const res = await fetch(`${API_URL}?action=entries`);
       const data = await res.json();
       if (data && data.entries) {
-        await idbPut('config', { key: 'dashboard_cache', entries: data.entries });
-        return data.entries;
+        remoteEntries = data.entries.map((e) => ({ ...e, synced: true }));
+        await idbPut('config', { key: 'entries_cache', entries: remoteEntries });
       }
-    } catch (e) { /* fall through to cache */ }
+    } catch (e) { /* offline or backend unreachable — fall back to cache below */ }
   }
-  const cached = await idbGet('config', 'dashboard_cache');
-  const pending = await idbAll('pending');
-  return [...(cached ? cached.entries : []), ...pending];
+
+  if (!remoteEntries) {
+    const cached = await idbGet('config', 'entries_cache');
+    remoteEntries = cached ? cached.entries : [];
+  }
+
+  const remoteIds = new Set(remoteEntries.map((e) => e.clientId));
+  const pending = (await idbAll('pending')).filter((e) => !remoteIds.has(e.clientId));
+
+  return [...remoteEntries, ...pending];
 }
 
-async function renderDashboard() {
-  const allEntries = await fetchDashboardEntries();
+async function renderDashboard(forceRefresh) {
+  const allEntries = await getAllEntries(forceRefresh);
 
   const filterEl = document.getElementById('dashboardMonthFilter');
   populateMonthFilter(filterEl, allEntries, 'All time');
@@ -824,8 +847,17 @@ async function renderDashboard() {
   `).join('');
 }
 
-document.getElementById('ledgerMonthFilter').addEventListener('change', renderLedger);
-document.getElementById('dashboardMonthFilter').addEventListener('change', renderDashboard);
+document.getElementById('ledgerMonthFilter').addEventListener('change', () => renderLedger(false));
+document.getElementById('dashboardMonthFilter').addEventListener('change', () => renderDashboard(false));
+
+document.getElementById('ledgerRefreshBtn').addEventListener('click', (e) => {
+  e.target.classList.add('spin');
+  renderLedger(true).finally(() => setTimeout(() => e.target.classList.remove('spin'), 700));
+});
+document.getElementById('dashboardRefreshBtn').addEventListener('click', (e) => {
+  e.target.classList.add('spin');
+  renderDashboard(true).finally(() => setTimeout(() => e.target.classList.remove('spin'), 700));
+});
 
 document.getElementById('view-dashboard').querySelectorAll('.totals-header button').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -864,3 +896,4 @@ if ('serviceWorker' in navigator) {
 
 </body>
 </html>
+ 
