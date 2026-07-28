@@ -469,7 +469,7 @@
 <script>
 /* ======================= CONFIG ======================= */
 // Replace with your deployed GAS Web App URL (Deploy > New deployment > Web app > Anyone).
-const API_URL = 'https://script.google.com/macros/s/AKfycbyPERye2VLoKURxl6O0mrIcx0qy-5aFGvotbhk6q59aZDP55DLqGqbU8Qj9T63jFpwDYw/exec';
+const API_URL = 'https://script.google.com/macros/s/REPLACE_WITH_DEPLOYMENT_ID/exec';
 
 const DEFAULT_CATEGORIES = ['Fuel', 'Meals', 'Accommodation', 'Tools & Consumables', 'Freight', 'PPE', 'Other'];
 const DEFAULT_PURCHASERS = [];
@@ -555,15 +555,38 @@ function money(n) {
   return '$' + (Number(n) || 0).toFixed(2);
 }
 
+function parseFlexibleDate(raw) {
+  if (!raw) return null;
+  const str = String(raw).trim();
+
+  // ISO date or datetime: 2026-07-15 or 2026-07-15T00:00:00.000Z
+  let m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+
+  // AU/dd-mm-yyyy style: 15/07/2026 or 15-07-2026
+  m = str.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (m) return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+
+  // Last resort — let the browser try
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+function toIsoDateStr(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
 function todayStr() {
-  const d = new Date();
-  const tzOffset = d.getTimezoneOffset() * 60000;
-  return new Date(d - tzOffset).toISOString().slice(0, 10);
+  return toIsoDateStr(new Date());
 }
 
 function entryDate(e) {
-  // purchaseDate (YYYY-MM-DD) is the field of record; fall back to timestamp for any legacy rows
-  return e.purchaseDate || (e.timestamp ? e.timestamp.slice(0, 10) : '');
+  // purchaseDate is the field of record; fall back to timestamp for any legacy rows.
+  // Always normalized to YYYY-MM-DD regardless of how it came back from the sheet.
+  const d = parseFlexibleDate(e.purchaseDate) || parseFlexibleDate(e.timestamp);
+  return d ? toIsoDateStr(d) : '';
 }
 
 function monthKey(dateStr) {
@@ -754,8 +777,8 @@ async function renderLedger(forceRefresh) {
       html += `<div class="month-divider">${monthLabel(mKey)}</div>`;
       lastMonth = mKey;
     }
-    const dateObj = entryDate(e) ? new Date(entryDate(e) + 'T00:00:00') : new Date(e.timestamp);
-    const dateStr = dateObj.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
+    const dateObj = entryDate(e) ? new Date(entryDate(e) + 'T00:00:00') : null;
+    const dateStr = dateObj ? dateObj.toLocaleDateString(undefined, { day: '2-digit', month: 'short' }) : 'Undated';
     const lockSvg = e.synced ? lockedSvg('#6B8F71', true) : lockedSvg('#A6553A', false);
     html += `
       <div class="entry-card">
@@ -896,4 +919,3 @@ if ('serviceWorker' in navigator) {
 
 </body>
 </html>
- 
