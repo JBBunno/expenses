@@ -675,10 +675,16 @@ async function updateSyncBadge() {
   }
 }
 
-async function trySync() {
-  if (!navigator.onLine) return;
+async function trySync(silent) {
+  if (!navigator.onLine) {
+    if (!silent) showToast("You're offline — can't sync right now", 3000);
+    return;
+  }
   const pending = await idbAll('pending');
-  if (pending.length === 0) return;
+  if (pending.length === 0) {
+    if (!silent) showToast('Nothing to sync — all sealed', 2200);
+    return;
+  }
 
   const dial = document.getElementById('headerDial');
   dial.classList.add('spin');
@@ -724,8 +730,8 @@ async function trySync() {
   }
 }
 
-window.addEventListener('online', trySync);
-setInterval(trySync, 30000);
+window.addEventListener('online', () => trySync(true));
+setInterval(() => trySync(true), 30000);
 
 /* ======================= ADD EXPENSE ======================= */
 document.getElementById('submitBtn').addEventListener('click', async () => {
@@ -760,7 +766,7 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
   document.getElementById('f-vendor').value = '';
   document.getElementById('f-purchase-date').value = todayStr();
 
-  trySync();
+  trySync(true);
 });
 
 /* ======================= LEDGER ======================= */
@@ -889,13 +895,17 @@ async function renderDashboard(forceRefresh) {
 document.getElementById('ledgerMonthFilter').addEventListener('change', () => renderLedger(false));
 document.getElementById('dashboardMonthFilter').addEventListener('change', () => renderDashboard(false));
 
-document.getElementById('ledgerRefreshBtn').addEventListener('click', (e) => {
+document.getElementById('ledgerRefreshBtn').addEventListener('click', async (e) => {
   e.target.classList.add('spin');
-  renderLedger(true).finally(() => setTimeout(() => e.target.classList.remove('spin'), 700));
+  await trySync(false);
+  await renderLedger(true);
+  setTimeout(() => e.target.classList.remove('spin'), 700);
 });
-document.getElementById('dashboardRefreshBtn').addEventListener('click', (e) => {
+document.getElementById('dashboardRefreshBtn').addEventListener('click', async (e) => {
   e.target.classList.add('spin');
-  renderDashboard(true).finally(() => setTimeout(() => e.target.classList.remove('spin'), 700));
+  await trySync(false);
+  await renderDashboard(true);
+  setTimeout(() => e.target.classList.remove('spin'), 700);
 });
 
 document.getElementById('view-dashboard').querySelectorAll('.totals-header button').forEach((btn) => {
