@@ -675,6 +675,30 @@ async function updateSyncBadge() {
   }
 }
 
+function postToGas(url, bodyObj) {
+  // iOS Safari has a known bug where fetch() throws "Load failed" on POST requests
+  // that hit Google Apps Script's redirect (script.google.com -> googleusercontent.com).
+  // XMLHttpRequest handles that redirect correctly, so we use it for this call.
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url, true);
+    xhr.setRequestHeader('Content-Type', 'text/plain;charset=utf-8');
+    xhr.onload = () => {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new Error(`Server returned ${xhr.status}`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(xhr.responseText));
+      } catch (e) {
+        reject(new Error('Server did not return JSON — check the deployment is set to "Anyone" access'));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Network request failed — check the deployment URL and connection'));
+    xhr.send(JSON.stringify(bodyObj));
+  });
+}
+
 async function trySync(silent) {
   if (!navigator.onLine) {
     if (!silent) showToast("You're offline — can't sync right now", 3000);
@@ -690,25 +714,7 @@ async function trySync(silent) {
   dial.classList.add('spin');
 
   try {
-    const res = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids CORS preflight against GAS
-      body: JSON.stringify({ action: 'addEntries', entries: pending })
-    });
-
-    if (!res.ok) {
-      throw new Error(`Server returned ${res.status}`);
-    }
-
-    const raw = await res.text();
-    let result;
-    try {
-      result = JSON.parse(raw);
-    } catch (parseErr) {
-      // GAS returned something that isn't JSON — usually an auth/login page, meaning
-      // the deployment's "Who has access" isn't set to Anyone, or the URL is stale.
-      throw new Error('Server did not return JSON — check the deployment is set to "Anyone" access');
-    }
+    const result = await postToGas(API_URL, { action: 'addEntries', entries: pending });
 
     if (result && result.ok) {
       for (const entry of pending) {
@@ -932,7 +938,19 @@ document.querySelectorAll('nav.tabbar button').forEach((btn) => {
 
 /* ======================= INIT ======================= */
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  window.addEventListener('load', async () => {
+    try {
+      const reg = await navigator.serviceWorker.register('sw.js');
+      reg.update(); // force a check for a newer sw.js on every load
+    } catch (e) { /* ignore */ }
+  });
+
+  let refreshedOnce = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (refreshedOnce) return;
+    refreshedOnce = true;
+    window.location.reload();
+  });
 }
 
 (async () => {
