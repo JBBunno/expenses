@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -607,11 +606,11 @@ function populateMonthFilter(selectEl, entries, allLabel) {
   if ([...selectEl.options].some((o) => o.value === current)) selectEl.value = current;
 }
 
-function showToast(msg) {
+function showToast(msg, duration) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2200);
+  setTimeout(() => t.classList.remove('show'), duration || 2200);
 }
 
 function segmentedSetup(id) {
@@ -690,7 +689,21 @@ async function trySync() {
       headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids CORS preflight against GAS
       body: JSON.stringify({ action: 'addEntries', entries: pending })
     });
-    const result = await res.json();
+
+    if (!res.ok) {
+      throw new Error(`Server returned ${res.status}`);
+    }
+
+    const raw = await res.text();
+    let result;
+    try {
+      result = JSON.parse(raw);
+    } catch (parseErr) {
+      // GAS returned something that isn't JSON — usually an auth/login page, meaning
+      // the deployment's "Who has access" isn't set to Anyone, or the URL is stale.
+      throw new Error('Server did not return JSON — check the deployment is set to "Anyone" access');
+    }
+
     if (result && result.ok) {
       for (const entry of pending) {
         await idbDelete('pending', entry.clientId);
@@ -698,9 +711,12 @@ async function trySync() {
         await idbPut('synced_cache', entry);
       }
       showToast(pending.length === 1 ? 'Entry sealed' : `${pending.length} entries sealed`);
+    } else {
+      throw new Error((result && result.error) || 'Server rejected the entries');
     }
   } catch (e) {
-    // stays queued, will retry on next trigger
+    console.error('Expense Vault sync failed:', e);
+    showToast(`Sync failed: ${e.message}`, 4500);
   } finally {
     setTimeout(() => dial.classList.remove('spin'), 650);
     await updateSyncBadge();
