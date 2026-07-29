@@ -365,6 +365,51 @@
   }
   nav.tabbar button.active { color: var(--brass-bright); }
   nav.tabbar .icon { font-size: 18px; line-height: 1; }
+
+  /* ---------- Debug panel (tap the vault dial 5x to open) ---------- */
+  #debugPanel {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 12, 16, 0.97);
+    z-index: 100;
+    flex-direction: column;
+    padding: 16px;
+    padding-top: max(16px, env(safe-area-inset-top));
+  }
+  #debugPanel.open { display: flex; }
+  #debugPanel .debug-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px; flex-shrink: 0;
+  }
+  #debugPanel .debug-header h2 { font-size: 15px; color: var(--brass); margin: 0; }
+  #debugPanel .debug-actions { display: flex; gap: 8px; }
+  #debugPanel button {
+    background: var(--ink-raised);
+    border: 1px solid var(--steel-line);
+    color: var(--paper);
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    padding: 7px 12px;
+    border-radius: 8px;
+  }
+  #debugLog {
+    flex: 1;
+    overflow-y: auto;
+    background: var(--ink-raised);
+    border: 1px solid var(--steel-line);
+    border-radius: 10px;
+    padding: 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  #debugLog .log-line { border-bottom: 1px solid var(--steel-line); padding: 6px 0; }
+  #debugLog .log-line.err { color: var(--pending); }
+  #debugLog .log-line.warn { color: var(--brass-bright); }
+  #debugLog .log-line .ts { color: var(--paper-dim); margin-right: 6px; }
 </style>
 </head>
 <body>
@@ -465,7 +510,97 @@
   <button data-view="dashboard"><span class="icon">◔</span>Dashboard</button>
 </nav>
 
+<div id="debugPanel">
+  <div class="debug-header">
+    <h2>Debug log — tap dial 5× to close</h2>
+    <div class="debug-actions">
+      <button type="button" id="debugCopyBtn">Copy</button>
+      <button type="button" id="debugClearBtn">Clear</button>
+      <button type="button" id="debugCloseBtn">Close</button>
+    </div>
+  </div>
+  <div id="debugLog"></div>
+</div>
+
 <script>
+/* ======================= DEBUG PANEL ======================= */
+/* Captures console output and uncaught errors into an on-screen panel —
+   tap the vault dial in the header 5 times to open it. Useful for
+   troubleshooting on a phone with no easy access to devtools. */
+const debugEntries = [];
+
+function debugLog(level, args) {
+  const line = args.map((a) => {
+    if (a instanceof Error) return a.message;
+    if (typeof a === 'object') { try { return JSON.stringify(a); } catch (e) { return String(a); } }
+    return String(a);
+  }).join(' ');
+  debugEntries.push({ level, line, time: new Date().toLocaleTimeString() });
+  if (debugEntries.length > 300) debugEntries.shift();
+  renderDebugLog();
+}
+
+['log', 'warn', 'error'].forEach((level) => {
+  const original = console[level].bind(console);
+  console[level] = (...args) => {
+    original(...args);
+    debugLog(level, args);
+  };
+});
+
+window.addEventListener('error', (e) => {
+  debugLog('error', [`Uncaught: ${e.message} (${e.filename}:${e.lineno})`]);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  debugLog('error', [`Unhandled promise rejection: ${e.reason && e.reason.message ? e.reason.message : e.reason}`]);
+});
+
+function renderDebugLog() {
+  const el = document.getElementById('debugLog');
+  if (!el || !document.getElementById('debugPanel').classList.contains('open')) return;
+  el.innerHTML = debugEntries.map((entry) =>
+    `<div class="log-line ${entry.level === 'error' ? 'err' : entry.level === 'warn' ? 'warn' : ''}"><span class="ts">${entry.time}</span>${escapeHtmlDebug(entry.line)}</div>`
+  ).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+function escapeHtmlDebug(s) {
+  return (s || '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  let tapCount = 0;
+  let tapTimer = null;
+  document.getElementById('headerDial').addEventListener('click', () => {
+    tapCount++;
+    clearTimeout(tapTimer);
+    tapTimer = setTimeout(() => { tapCount = 0; }, 1500);
+    if (tapCount >= 5) {
+      tapCount = 0;
+      const panel = document.getElementById('debugPanel');
+      panel.classList.toggle('open');
+      if (panel.classList.contains('open')) renderDebugLog();
+    }
+  });
+
+  document.getElementById('debugCloseBtn').addEventListener('click', () => {
+    document.getElementById('debugPanel').classList.remove('open');
+  });
+  document.getElementById('debugClearBtn').addEventListener('click', () => {
+    debugEntries.length = 0;
+    renderDebugLog();
+  });
+  document.getElementById('debugCopyBtn').addEventListener('click', async () => {
+    const text = debugEntries.map((e) => `[${e.time}] ${e.level.toUpperCase()}: ${e.line}`).join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('Log copied');
+    } catch (e) {
+      showToast('Copy failed — select text manually');
+    }
+  });
+});
+
 /* ======================= CONFIG ======================= */
 // Replace with your deployed GAS Web App URL (Deploy > New deployment > Web app > Anyone).
 const API_URL = 'https://script.google.com/macros/s/REPLACE_WITH_DEPLOYMENT_ID/exec';
@@ -679,11 +814,13 @@ function postToGas(url, bodyObj) {
   // iOS Safari has a known bug where fetch() throws "Load failed" on POST requests
   // that hit Google Apps Script's redirect (script.google.com -> googleusercontent.com).
   // XMLHttpRequest handles that redirect correctly, so we use it for this call.
+  console.log(`POST ${url} — ${(bodyObj.entries || []).length} entries`);
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url, true);
     xhr.setRequestHeader('Content-Type', 'text/plain;charset=utf-8');
     xhr.onload = () => {
+      console.log(`Response status ${xhr.status}, ${xhr.responseText.length} bytes`);
       if (xhr.status < 200 || xhr.status >= 300) {
         reject(new Error(`Server returned ${xhr.status}`));
         return;
@@ -691,10 +828,14 @@ function postToGas(url, bodyObj) {
       try {
         resolve(JSON.parse(xhr.responseText));
       } catch (e) {
+        console.error('Raw response was:', xhr.responseText.slice(0, 300));
         reject(new Error('Server did not return JSON — check the deployment is set to "Anyone" access'));
       }
     };
-    xhr.onerror = () => reject(new Error('Network request failed — check the deployment URL and connection'));
+    xhr.onerror = () => {
+      console.error(`xhr.onerror fired — readyState ${xhr.readyState}, status ${xhr.status}`);
+      reject(new Error('Network request failed — check the deployment URL and connection'));
+    };
     xhr.send(JSON.stringify(bodyObj));
   });
 }
@@ -709,20 +850,33 @@ async function trySync(silent) {
     if (!silent) showToast('Nothing to sync — all sealed', 2200);
     return;
   }
+  console.log(`trySync: attempting ${pending.length} pending entr${pending.length === 1 ? 'y' : 'ies'}`);
 
   const dial = document.getElementById('headerDial');
   dial.classList.add('spin');
 
   try {
     const result = await postToGas(API_URL, { action: 'addEntries', entries: pending });
+    console.log('Sync result:', result);
 
     if (result && result.ok) {
+      const addedIds = new Set(result.addedIds || []);
       for (const entry of pending) {
+        if (!addedIds.has(entry.clientId)) continue;
         await idbDelete('pending', entry.clientId);
         entry.synced = true;
         await idbPut('synced_cache', entry);
       }
-      showToast(pending.length === 1 ? 'Entry sealed' : `${pending.length} entries sealed`);
+
+      const succeededCount = addedIds.size;
+      const failed = result.failed || [];
+
+      if (failed.length > 0) {
+        const reason = failed[0].error || 'unknown error';
+        showToast(`${succeededCount} sealed, ${failed.length} rejected: ${reason}`, 5000);
+      } else if (succeededCount > 0) {
+        showToast(succeededCount === 1 ? 'Entry sealed' : `${succeededCount} entries sealed`);
+      }
     } else {
       throw new Error((result && result.error) || 'Server rejected the entries');
     }
